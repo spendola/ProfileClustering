@@ -26,6 +26,7 @@ def main():
         choice = int(raw_input("Select an Option: "))
         if(choice == 1):
             dataset, profiles = GetDataset(xml)
+            
         if(choice == 2):
             DownloadFile("http://www.pendola.net/tools/export_profile_markings.php", "profile_markings.txt")
             TouchFile("http://www.pendola.net/tools/export_set.php")
@@ -48,7 +49,7 @@ def main():
             best_bias = 0
             lowest_density = None
             temp = 1
-            for i in range(25):
+            for i in range(100):
                 for e in range(2):
                     temp = temp * (-1)
                     print("Attempting Bias : " + str(best_bias + temp))
@@ -334,7 +335,7 @@ def GetProfileMarkings(bias=0):
             if(subnode[0].text == None or subnode[1].text == None):
                 continue
             marks.append(" " + subnode[0].text)
-            weights[" " + subnode[0].text] = max(np.exp(-(float(subnode[1].text + bias)) /10.0), 0.005)
+            weights[" " + subnode[0].text] = max(np.exp(-(float(subnode[1].text) + float(bias))/10.0), 0.005)
         markings.append([family, marks])
 
     return markings, weights
