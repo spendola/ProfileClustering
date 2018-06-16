@@ -16,6 +16,9 @@ def main():
         print("1) Evaluate Dataset")
         print("2) Generate Footprints")
         print("3) Footprint Clustering")
+        print("4) Adaptive Clustering")
+        print("5) Profile Labeling")
+        print("6) Full Cycle")
         print("8) Get Batch Id")
         print("9) Download Profile Markings")
         print("0) Exit")
@@ -30,12 +33,78 @@ def main():
             dataset, profiles = GetDataset(xml)
             markings, weights = GetProfileMarkings()
             GenerateFootprints(dataset, profiles, markings, weights)
-            print("Finished")
+
         if(choice == 3):
             TouchFile("http://www.pendola.net/tools/export_profile_footprints.php")
             DownloadFile("http://www.pendola.net/tools/profile_footprints.txt", "profile_footprints.txt")
             footprints = GetProfileFootprints()
-            ProfileClustering(footprints, batch_id)
+            FootprintClustering(footprints, batch_id)
+
+        if(choice == 4):
+            DownloadFile("http://www.pendola.net/tools/export_profile_markings.php", "profile_markings.txt")
+            TouchFile("http://www.pendola.net/tools/export_set.php")
+            DownloadFile("http://www.pendola.net/tools/dump.txt", "dump.txt")
+            dataset, profiles = GetDataset(xml)
+            best_bias = 0
+            lowest_density = None
+            temp = 1
+            for i in range(25):
+                for e in range(2):
+                    temp = tem * (-1)
+                    print("Attempting Bias : " + str(best_bias + temp))
+                    markings, weights = GetProfileMarkings(best_bias + temp)
+                    GenerateFootprints(dataset, profiles, markings, weights)
+
+                    TouchFile("http://www.pendola.net/tools/export_profile_footprints.php")
+                    DownloadFile("http://www.pendola.net/tools/profile_footprints.txt", "profile_footprints.txt")
+                    footprints = GetProfileFootprints()
+                    for e in range(3):
+                        this_density = FootprintClustering(footprints, batch_id)
+                        if(lowest_density == None):
+                            lowest_density = this_density
+                            best_bias = i
+                        if(this_density < lowest_density):
+                            lowest_density = this_density
+                            best_bias = i
+                
+            print "Lowest Density: " + str(lowest_density)
+            print "Best Bias: " + str(best_bias)
+                    
+            
+        if(choice == 5):
+            TouchFile("http://www.pendola.net/tools/export_profile_clusters.php")
+            DownloadFile("http://www.pendola.net/tools/profile_clusters.txt", "profile_clusters.txt")
+            TouchFile("http://www.pendola.net/tools/export_profile_footprints.php")
+            DownloadFile("http://www.pendola.net/tools/profile_footprints.txt", "profile_footprints.txt")
+            clusters = GetProfileClusters()
+            footprints = GetProfileFootprintsEx()
+            ProfileLabeling(footprints, clusters)
+            
+        if(choice == 6):
+            # Generate Footprints for all profiles in database dump
+            DownloadFile("http://www.pendola.net/tools/export_profile_markings.php", "profile_markings.txt")
+            TouchFile("http://www.pendola.net/tools/export_set.php")
+            DownloadFile("http://www.pendola.net/tools/dump.txt", "dump.txt")
+            dataset, profiles = GetDataset(xml)
+            markings, weights = GetProfileMarkings()
+            GenerateFootprints(dataset, profiles, markings, weights)
+
+            # Generate footprint clusters
+            batch_id = FetchRemoteBatchId()
+            TouchFile("http://www.pendola.net/tools/export_profile_footprints.php")
+            DownloadFile("http://www.pendola.net/tools/profile_footprints.txt", "profile_footprints.txt")
+            footprints = GetProfileFootprints()
+            FootprintClustering(footprints, batch_id)
+
+            # Label all profiles
+            TouchFile("http://www.pendola.net/tools/export_profile_clusters.php")
+            DownloadFile("http://www.pendola.net/tools/profile_clusters.txt", "profile_clusters.txt")
+            TouchFile("http://www.pendola.net/tools/export_profile_footprints.php")
+            DownloadFile("http://www.pendola.net/tools/profile_footprints.txt", "profile_footprints.txt")
+            clusters = GetProfileClusters()
+            footprints = GetProfileFootprintsEx()
+            ProfileLabeling(footprints, clusters)
+            
 
 
         if(choice == 8):
@@ -46,7 +115,25 @@ def main():
         if(choice == 0):
             break
 
-def ProfileClustering(footprints, batch_id, cluster_count=6):
+        
+def ProfileLabeling(profiles, clusters):
+    for profile in profiles:
+        best_distance = None
+        best_cluster = None
+        for cluster in clusters:
+            this_distance = np.linalg.norm(np.asarray(profile[1])-np.asarray(cluster[1]))
+            if(best_distance == None):
+                best_distance = this_distance
+                best_cluster = cluster[0]
+            if(this_distance < best_distance):
+                best_distance = this_distance
+                best_cluster = cluster[0]
+        print "Best Cluster (" + profile[0] + ") " + str(best_cluster)
+        sql = "UPDATE profile_footprints SET label='"+ str(best_cluster) +"' WHERE profile='"+profile[0]+"'"
+        UpdateRemoteAPI(sql, "raw_sql")
+                
+    
+def FootprintClustering(footprints, batch_id, cluster_count=6):
     vectors, maxima = VectorizeFootprints(footprints)
 
     clusters = []
@@ -85,14 +172,19 @@ def ProfileClustering(footprints, batch_id, cluster_count=6):
                 new_position = max(float(total) / max(float(count), 1), 0.00000)
                 variance = variance + (abs(new_position - clusters[c][i]))
                 clusters[c][i] = new_position
-
         print str(variance) + " variance"
 
+        highest_density = 0
         if(variance < 0.0001):
             print("Final Cluster Density: ")
             for i in range(len(clusters)):
-                print len([x for x in vectors if x[0] == i])
-            
+                this_density = len([x for x in vectors if x[0] == i])
+                if(this_density > highest_density):
+                    highest_density = this_density
+                print this_density,
+            print " "
+
+            print("Clusters")
             np.set_printoptions(suppress=True)
             for cluster in clusters:
                 footprint = (np.array_str(cluster, precision=3)).replace("[", "").replace("]", "")
@@ -103,7 +195,7 @@ def ProfileClustering(footprints, batch_id, cluster_count=6):
                     sql = sql + "VALUES (" + batch_id + ", '" + footprint + "', '', 0)"
                     UpdateRemoteAPI(sql, "raw_sql")
             break
-            
+    return highest_density
     
 
 def VectorizeFootprints(footprints):           
@@ -135,7 +227,7 @@ def VectorizeFootprints(footprints):
     print(str(len(markings)) + " vectors created")
     return markings, maximas
 
-def GenerateFootprints(dataset, profiles, markings, weights, lower_limit=20, upper_limit=30):
+def GenerateFootprints(dataset, profiles, markings, weights, lower_limit=25, upper_limit=50):
     counts = {}
     for profile in profiles:
        
@@ -150,17 +242,27 @@ def GenerateFootprints(dataset, profiles, markings, weights, lower_limit=20, upp
                 phrases.append(item[1])
 
         scores = ""
+        union = ""
+        caps = {}
         for family in markings:
             family_counter = 0.0
             for mark in family[1]:
                 for phrase in phrases:
                     if mark in phrase:
-                        family_counter = family_counter + weights[mark]
+
+                        if(mark not in caps):
+                            caps[mark] = weights[mark]
+                        else:
+                            caps[mark] = caps[mark] + weights[mark]
+                        if(caps[mark] < 1.0):
+                            family_counter = family_counter + weights[mark]
+                        
                         if(mark not in counts):
                             counts[mark] = 1
                         else:
                             counts[mark] = counts[mark] + 1
-            scores = scores + str(round(family_counter, 3)) + ","
+            scores = scores + union + str(round(family_counter, 5))
+            union = ","
 
         if(counter > lower_limit):
             print(profile + ": " + scores)
@@ -208,7 +310,17 @@ def GetDataset(tree):
     print(str(subcounter) + " profiles are almost large enough for analysis")
     return dataset, profiles
 
-def GetProfileMarkings():
+def GetProfileClusters():
+    print("Processing Profile Clusters ... ")
+    tree = LoadFromXml("profile_clusters.txt")
+    root = tree.getroot()
+
+    clusters = []
+    for node in root:
+        clusters.append([node[0].text, [float(x) for x in node[1].text.split(",")]])
+    return clusters
+
+def GetProfileMarkings(bias=0):
     print("Processing Profile Markings ... ")
     tree = LoadFromXml("profile_markings.txt")
     root = tree.getroot()
@@ -222,7 +334,7 @@ def GetProfileMarkings():
             if(subnode[0].text == None or subnode[1].text == None):
                 continue
             marks.append(" " + subnode[0].text)
-            weights[" " + subnode[0].text] = np.exp(-float(subnode[1].text)/100.0)
+            weights[" " + subnode[0].text] = max(np.exp(-(float(subnode[1].text + bias)) /10.0), 0.005)
         markings.append([family, marks])
 
     return markings, weights
@@ -236,6 +348,22 @@ def GetProfileFootprints():
     for node in root:
         if(node[0].text != None and node[1].text != None):
             footprints.append([node[0].text, node[1].text])
+
+    print(str(len(footprints)) + " footprints loaded")
+    return footprints
+
+def GetProfileFootprintsEx():
+    print("Processing Profile Footprints ... ")
+    tree = LoadFromXml("profile_footprints.txt")
+    root = tree.getroot()
+
+    footprints = []
+    for node in root:
+        if(node[0].text != None and node[1].text != None):
+            text = node[1].text
+            if(text[-1:] == ","):
+                text = text[:-1]
+            footprints.append([node[0].text, [float(x) for x in text.split(",")]])
 
     print(str(len(footprints)) + " footprints loaded")
     return footprints
@@ -285,7 +413,6 @@ def DownloadFile(remote_name, local_name):
 
 def UpdateRemoteAPI(msg, action="public_message"):
     # Prepare the data
-    print(msg)
     clean_msg = msg.encode('utf-8').strip()
     query_args = { 'action':action, 'message':clean_msg }
     data = urllib.urlencode(query_args)
