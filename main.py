@@ -50,7 +50,7 @@ def main():
             temp = 1
             for i in range(25):
                 for e in range(2):
-                    temp = tem * (-1)
+                    temp = temp * (-1)
                     print("Attempting Bias : " + str(best_bias + temp))
                     markings, weights = GetProfileMarkings(best_bias + temp)
                     GenerateFootprints(dataset, profiles, markings, weights)
